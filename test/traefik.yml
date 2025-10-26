@@ -1,0 +1,20 @@
+log:
+  level: DEBUG
+
+entryPoints:
+  web:
+    address: ":8080"
+
+api:
+  dashboard: true
+
+providers:
+  file:
+    filename: /etc/traefik/dynamic.yml
+
+experimental:
+  localPlugins:
+    torblock:
+      moduleName: "github.com/alexandrovas/traefik-plugin-torblock"
+
+accessLog: {}

@@ -1,0 +1,20 @@
+http:
+  routers:
+    test:
+      rule: "PathPrefix(`/`)"
+      service: dummy
+      middlewares:
+        - torblock
+
+  middlewares:
+    torblock:
+      plugin:
+        torblock:
+          updateInterval: "12h"
+          torExitNodeListUrl: "https://raw.githubusercontent.com/firehol/blocklist-ipsets/refs/heads/master/tor_exits_30d.ipset"
+
+  services:
+    dummy:
+      loadBalancer:
+        servers:
+          - url: "http://httpbin.org/anything"

@@ -1,0 +1,11 @@
+displayName: "TOR Blocker"
+type: middleware
+import: github.com/alexandrovas/traefik-plugin-torblock
+
+summary: |
+  Blocks HTTP requests originating from TOR exit nodes using a periodically refreshed list.
+
+testData:
+  updateInterval: "8h"
+  blockMessage: "Access denied (TOR)"
+  torExitNodeListUrl: "https://raw.githubusercontent.com/firehol/blocklist-ipsets/refs/heads/master/tor_exits_30d.ipset"

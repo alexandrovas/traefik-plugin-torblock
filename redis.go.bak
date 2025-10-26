@@ -1,0 +1,174 @@
+// package traefik_plugin_torblock
+
+// import (
+// 	"context"
+// 	"fmt"
+// 	"net"
+// 	"time"
+
+// 	"github.com/gomodule/redigo/redis"
+// )
+
+// type RedisStore struct {
+// 	// conn redis.Conn
+// 	pool   *redis.Pool
+// 	key    string
+// 	ttl    time.Duration
+// 	dialer *net.Dialer
+// }
+
+// func (r *RedisStore) dialContext(ctx context.Context, network, address string) (net.Conn, error) {
+// 	fmt.Printf("[torblock] dialer.DialContext: network=%v, address=%v", network, address)
+// 	return r.dialer.DialContext(ctx, network, address)
+// }
+
+// func NewRedisStore(cfg RedisConfig, ttl time.Duration) (*RedisStore, error) {
+// 	// dialContext := rs.dialContext()
+// 	fmt.Printf("[torblock] redis config: %+v", cfg)
+
+// 	rs := &RedisStore{
+// 		key: cfg.Key,
+// 		ttl: ttl,
+// 		dialer: &net.Dialer{
+// 			Timeout:   time.Second * 30,
+// 			KeepAlive: time.Minute * 5,
+// 		},
+// 	}
+
+// 	redisOpts := []redis.DialOption{
+// 		redis.DialContextFunc(rs.dialContext),
+// 	}
+// 	if cfg.Username != "" {
+// 		redisOpts = append(redisOpts, redis.DialUsername(cfg.Username))
+// 	}
+// 	if cfg.Password != "" {
+// 		redisOpts = append(redisOpts, redis.DialPassword(cfg.Password))
+// 	}
+
+// 	rs.pool = &redis.Pool{
+// 		MaxIdle:     3,
+// 		IdleTimeout: 1 * time.Hour,
+
+// 		Dial: func() (redis.Conn, error) {
+// 			conn, err := redis.Dial("tcp", cfg.Address, redisOpts...)
+// 			fmt.Printf("[torblock] redis.Dial: err=%s, conn=%+v, redisOpts=%+v", err, conn, redisOpts)
+// 			fmt.Printf("[torblock] redis.Dial: %s", err)
+// 			if err != nil {
+// 				return nil, err
+// 			}
+// 			// if cfg.DB != 0 {
+// 			// 	fmt.Printf("[torblock] redis select database %v", cfg.DB)
+// 			// 	conn.Do("SELECT", cfg.DB)
+// 			// 	// fmt.Printf("[torblock] conn.Do SELECT: %s", err)
+// 			// 	// if err != redis. {
+// 			// 	// 	return nil, err
+// 			// 	// }
+// 			// }
+// 			return conn, nil
+// 		},
+
+// 		TestOnBorrow: func(c redis.Conn, t time.Time) error {
+// 			_, err := c.Do("PING")
+// 			fmt.Printf("[torblock] PING: %s", err)
+// 			return err
+// 		},
+
+// 		TestOnBorrowContext: func(ctx context.Context, c redis.Conn, t time.Time) error {
+// 			_, err := c.Do("PING")
+// 			fmt.Printf("[torblock] PING: %s", err)
+// 			return err
+// 		},
+// 	}
+
+// 	return rs, nil
+// }
+
+// func (r *RedisStore) Update(ips map[string]struct{}) error {
+// 	conn := r.pool.Get()
+// 	// defer conn.Close()
+// 	// conn := r.conn
+
+// 	var commandCount int
+
+// 	// declare temporary key in redis
+// 	tmpKey := fmt.Sprintf("%s:%d", r.key, time.Now().Unix())
+
+// 	// start transaction
+// 	if err := conn.Send("MULTI"); err != nil {
+// 		fmt.Printf("[torblock] redis MULTI command failed: %s", err)
+// 		return fmt.Errorf("redis MULTI command failed: %w", err)
+// 	}
+
+// 	// cleanup value in temporary key
+// 	if err := conn.Send("DEL", tmpKey); err != nil {
+// 		fmt.Printf("[torblock] redis DEL command failed: %s", err)
+// 		return fmt.Errorf("redis DEL command failed: %w", err)
+// 	} else {
+// 		commandCount++
+// 	}
+
+// 	for ip := range ips {
+// 		// add ip to key
+// 		if err := conn.Send("SADD", tmpKey, ip); err != nil {
+// 			fmt.Printf("[torblock] redis SADD command failed: %s", err)
+// 			return fmt.Errorf("redis SADD command failed: %w", err)
+// 		} else {
+// 			commandCount++
+// 		}
+// 	}
+
+// 	if err := conn.Send("EXPIRE", tmpKey, int(r.ttl.Seconds()*2)); err != nil {
+// 		fmt.Printf("[torblock] redis EXPIRE command failed: %s", err)
+// 		return fmt.Errorf("redis EXPIRE command failed: %w", err)
+// 	} else {
+// 		commandCount++
+// 	}
+// 	if err := conn.Send("RENAME", tmpKey, r.key); err != nil {
+// 		fmt.Printf("[torblock] redis RENAME command failed: %s", err)
+// 		return fmt.Errorf("redis RENAME command failed: %w", err)
+// 	} else {
+// 		commandCount++
+// 	}
+// 	if err := conn.Send("EXEC"); err != nil {
+// 		fmt.Printf("[torblock] redis EXEC command failed: %s", err)
+// 		return fmt.Errorf("redis EXEC command failed: %w", err)
+// 	}
+// 	if err := conn.Flush(); err != nil {
+// 		fmt.Printf("[torblock] redis Flush command failed: %s", err)
+// 		return fmt.Errorf("redis Flush command failed: %w", err)
+// 	}
+// 	for i := 0; i < commandCount; i++ {
+// 		if _, err := conn.Receive(); err != nil {
+// 			fmt.Printf("[torblock] redis Receive command failed: %s", err)
+// 			return fmt.Errorf("redis Receive command failed: %w", err)
+// 		}
+// 	}
+
+// 	return nil
+// }
+
+// func (r *RedisStore) Contains(ip string) (bool, error) {
+// 	conn := r.pool.Get()
+// 	fmt.Printf("[torblock] redis idle count: %v", r.pool.IdleCount())
+// 	fmt.Printf("[torblock] redis active count: %v", r.pool.ActiveCount())
+// 	defer func() {
+// 		err := conn.Close()
+// 		fmt.Printf("[torblock] close connection: %s", err)
+// 	}()
+// 	// conn := r.conn
+
+// 	exists, err := redis.Bool(conn.Do("SISMEMBER", r.key, ip))
+// 	if err != nil {
+// 		fmt.Printf("[torblock] redis SISMEMBER command failed: %s", err)
+// 		return false, fmt.Errorf("redis SISMEMBER command failed: %w", err)
+// 	}
+
+// 	fmt.Printf("[torblock] redis SISMEMBER command result: %v", exists)
+// 	return exists, nil
+// }
+
+// func (r *RedisStore) Close() error {
+// 	return r.pool.Close()
+// 	// return r.pool.Close()
+// 	// return r.conn.Close()
+// }

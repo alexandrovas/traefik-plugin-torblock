@@ -1,0 +1,25 @@
+version: "3"
+
+services:
+  traefik:
+    image: traefik:v3.5.3
+    depends_on:
+      - redis
+    command:
+      - "--api.insecure=true"
+      - "--providers.file.filename=/etc/traefik/dynamic.yml"
+      - "--entrypoints.web.address=:8080"
+      - "--experimental.localplugins.torblock.modulename=github.com/alexandrovas/traefik-plugin-torblock"
+    ports:
+      - "8080:8080"
+      - "8081:8081" # dashboard
+    volumes:
+      - ./traefik.yml:/etc/traefik/traefik.yml
+      - ./dynamic.yml:/etc/traefik/dynamic.yml
+      - ../:/plugins-local/src/github.com/alexandrovas/traefik-plugin-torblock
+
+  redis:
+    image: redis:latest
+    # command: ["redis-server", "--requirepass", "your_redis_password"]
+    ports:
+      - "6379:6379"
