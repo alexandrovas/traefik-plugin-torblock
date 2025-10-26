@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -25,7 +26,7 @@ type IpStrategyConfig struct {
 }
 
 const (
-	xForwardedForHeader = "X-Forwarded-For"
+	XForwardedForHeader = "X-Forwarded-For"
 )
 
 // type RedisConfig struct {
@@ -75,6 +76,16 @@ func New(ctx context.Context, next http.Handler, cfg *Config, name string) (http
 		return nil, fmt.Errorf("invalid update interval: %w", err)
 	}
 
+	if interval < 60*time.Second {
+		return nil, fmt.Errorf("update interval cannot be lower than 60 seconds")
+	}
+
+	u, err := url.ParseRequestURI(cfg.TorExitNodeListURL)
+	if err != nil {
+		writeLog("parsed url: %+v", u)
+		return nil, fmt.Errorf("failed to parse url '%s': %w", cfg.TorExitNodeListURL, err)
+	}
+
 	tb := &TorBlock{
 		next:           next,
 		blockMessage:   cfg.BlockMessage,
@@ -88,6 +99,7 @@ func New(ctx context.Context, next http.Handler, cfg *Config, name string) (http
 	ctx, cancel := context.WithCancel(ctx)
 	tb.cancel = cancel
 
+	tb.updateTorList()
 	// запуск фонового обновления
 	go tb.updateLoop(ctx)
 
@@ -96,7 +108,6 @@ func New(ctx context.Context, next http.Handler, cfg *Config, name string) (http
 
 // updateLoop периодически обновляет список TOR IP
 func (t *TorBlock) updateLoop(ctx context.Context) {
-	t.updateTorList()
 	ticker := time.NewTicker(t.updateInterval)
 	defer ticker.Stop()
 
@@ -165,11 +176,11 @@ func (tb *TorBlock) getClientIP(req *http.Request) string {
 	var result string
 
 	if tb.ipStrategy.Depth > 0 {
-		xff := req.Header.Get(xForwardedForHeader)
+		xff := req.Header.Get(XForwardedForHeader)
 		if xff != "" {
 			parts := strings.Split(xff, ",")
 			if len(parts) >= tb.ipStrategy.Depth {
-				result = parts[len(parts)-tb.ipStrategy.Depth]
+				result = strings.TrimSpace(parts[len(parts)-tb.ipStrategy.Depth])
 			}
 		}
 	}
@@ -191,7 +202,7 @@ func (tb *TorBlock) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 
 	if blocked {
 		tb.forbid(rw)
-		writeLog("Block request %s %s from TOR IP %s", req.Method, req.RequestURI, ip)
+		writeLog("Block request %s %s from TOR IP %s", req.Method, req.URL.RequestURI(), ip)
 		return
 	}
 
