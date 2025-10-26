@@ -13,11 +13,20 @@ import (
 
 // Config — конфигурация плагина.
 type Config struct {
-	UpdateInterval     string `json:"updateInterval,omitempty"`
-	BlockMessage       string `json:"blockMessage,omitempty"`
-	TorExitNodeListURL string `json:"torExitNodeListUrl,omitempty"`
+	UpdateInterval     string           `json:"updateInterval,omitempty"`
+	BlockMessage       string           `json:"blockMessage,omitempty"`
+	TorExitNodeListURL string           `json:"torExitNodeListUrl,omitempty"`
+	IPStrategy         IpStrategyConfig `json:"ipStrategy"`
 	// Redis          RedisConfig `json:"redis"`
 }
+
+type IpStrategyConfig struct {
+	Depth int `json:"depth"`
+}
+
+const (
+	xForwardedForHeader = "X-Forwarded-For"
+)
 
 // type RedisConfig struct {
 // 	Address  string `json:"address,omitempty"`
@@ -33,6 +42,9 @@ func CreateConfig() *Config {
 		UpdateInterval:     "12h",
 		BlockMessage:       "Access denied: TOR exit node detected",
 		TorExitNodeListURL: "https://raw.githubusercontent.com/firehol/blocklist-ipsets/refs/heads/master/tor_exits_30d.ipset",
+		IPStrategy: IpStrategyConfig{
+			Depth: 0,
+		},
 		// Redis: RedisConfig{
 		// 	Key: "traefik:tor_ips",
 		// },
@@ -47,6 +59,7 @@ type TorBlock struct {
 	// interface is not working in yaegi
 	// redisStore  *RedisStore
 	memoryStore *MemoryStore
+	ipStrategy  IpStrategyConfig
 	cancel      context.CancelFunc
 }
 
@@ -67,6 +80,7 @@ func New(ctx context.Context, next http.Handler, cfg *Config, name string) (http
 		blockMessage:   cfg.BlockMessage,
 		updateInterval: interval,
 		exitListUrl:    cfg.TorExitNodeListURL,
+		ipStrategy:     cfg.IPStrategy,
 	}
 
 	tb.memoryStore = NewMemoryStore()
@@ -80,7 +94,7 @@ func New(ctx context.Context, next http.Handler, cfg *Config, name string) (http
 	return tb, nil
 }
 
-// updateLoop периодически обновляет список TOR IP.
+// updateLoop периодически обновляет список TOR IP
 func (t *TorBlock) updateLoop(ctx context.Context) {
 	t.updateTorList()
 	ticker := time.NewTicker(t.updateInterval)
@@ -109,7 +123,7 @@ func getAllIPsInCIDR(cidr string) (ips []string) {
 	return
 }
 
-// updateTorList скачивает TOR-список и записывает в Store.
+// updateTorList скачивает TOR-список и записывает в Store
 func (tb *TorBlock) updateTorList() {
 	resp, err := http.Get(tb.exitListUrl)
 	if err != nil {
@@ -146,17 +160,38 @@ func (tb *TorBlock) updateTorList() {
 	writeLog("Updated TOR IP list (%d entries)", len(newIPs))
 }
 
-// ServeHTTP — проверяет IP и блокирует TOR.
-func (tb *TorBlock) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	ip, _, err := net.SplitHostPort(req.RemoteAddr)
-	if err != nil {
-		ip = req.RemoteAddr
+// Возвращает Client IP
+func (tb *TorBlock) getClientIP(req *http.Request) string {
+	var result string
+
+	if tb.ipStrategy.Depth > 0 {
+		xff := req.Header.Get(xForwardedForHeader)
+		if xff != "" {
+			parts := strings.Split(xff, ",")
+			if len(parts) >= tb.ipStrategy.Depth {
+				result = parts[len(parts)-tb.ipStrategy.Depth]
+			}
+		}
 	}
 
+	if result == "" {
+		ip, _, err := net.SplitHostPort(req.RemoteAddr)
+		if err != nil {
+			ip = req.RemoteAddr
+		}
+		result = ip
+	}
+	return result
+}
+
+// ServeHTTP — проверяет IP и блокирует TOR.
+func (tb *TorBlock) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+	ip := tb.getClientIP(req)
 	blocked := tb.memoryStore.Contains(ip)
 
 	if blocked {
 		tb.forbid(rw)
+		writeLog("Block request %s %s from TOR IP %s", req.Method, req.RequestURI, ip)
 		return
 	}
 

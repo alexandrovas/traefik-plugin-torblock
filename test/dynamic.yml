@@ -12,6 +12,8 @@ http:
         torblock:
           updateInterval: "12h"
           torExitNodeListUrl: "https://raw.githubusercontent.com/firehol/blocklist-ipsets/refs/heads/master/tor_exits_30d.ipset"
+          # ipStrategy:
+          #   depth: 1
 
   services:
     dummy:

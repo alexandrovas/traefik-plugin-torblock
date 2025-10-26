@@ -4,6 +4,10 @@ log:
 entryPoints:
   web:
     address: ":8080"
+    forwardedHeaders:
+        # -- Trust forwarded headers information (X-Forwarded-*).
+      trustedIPs:
+        - "192.168.117.0/24"
 
 api:
   dashboard: true

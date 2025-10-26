@@ -17,6 +17,10 @@ func (m *MemoryStore) Update(list map[string]struct{}) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.data = list
+
+	// uncomment for debug
+	// m.data["1.2.3.4"] = struct{}{}
+	// m.data["192.168.117.1"] = struct{}{}
 }
 
 func (m *MemoryStore) Contains(ip string) bool {
