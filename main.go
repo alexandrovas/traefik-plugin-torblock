@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 )
@@ -66,7 +67,7 @@ type TorBlock struct {
 
 func writeLog(text string, args ...any) {
 	msg := "[torblock] " + text + "\n"
-	fmt.Printf(msg, args...)
+	fmt.Fprintf(os.Stderr, msg, args...)
 }
 
 // New создаёт экземпляр middleware.
