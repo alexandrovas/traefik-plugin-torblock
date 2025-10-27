@@ -45,6 +45,7 @@ func TestRequests(t *testing.T) {
 
 1.2.3.4
 4.3.2.1
+171.25.193.36/31
 `
 	// create mock server for return tor ip list
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -64,54 +65,78 @@ func TestRequests(t *testing.T) {
 	assert.NoError(err)
 
 	type testCase struct {
-		srcIp      string
+		remoteIp   string
 		statusCode int
 		headers    map[string]string
 	}
 
 	testCases := []testCase{
+		// check blocking with by remote ip (in blocklist)
 		{
-			srcIp:      "1.2.3.4",
+			remoteIp:   "1.2.3.4",
 			statusCode: http.StatusForbidden,
 		},
+		// check blocking with by remote ip (not in blocklist)
 		{
-			srcIp:      "4.5.6.7",
+			remoteIp:   "4.5.6.7",
 			statusCode: http.StatusNoContent,
 		},
+		// check blocking with X-Forwarded-For (moultiple addresses, not in blacklist)
 		{
-			srcIp:      "4.5.6.7",
+			remoteIp:   "4.5.6.7",
 			statusCode: http.StatusNoContent,
 			headers: map[string]string{
 				torblock.XForwardedForHeader: "192.168.100.1, 8.8.8.8",
 			},
 		},
+		// check blocking with X-Forwarded-For (in blacklist)
 		{
-			srcIp:      "4.5.6.7",
+			remoteIp:   "4.5.6.7",
 			statusCode: http.StatusForbidden,
 			headers: map[string]string{
 				torblock.XForwardedForHeader: "192.168.100.1, 1.2.3.4",
 			},
 		},
+		// check blocking with X-Forwarded-For (in blacklist)
 		{
-			srcIp:      "4.5.6.7",
+			remoteIp:   "4.5.6.7",
 			statusCode: http.StatusForbidden,
 			headers: map[string]string{
 				torblock.XForwardedForHeader: "1.2.3.4",
 			},
 		},
+		// check blocking with X-Forwarded-For (not in blacklist)
 		{
-			srcIp:      "1.2.3.4",
+			remoteIp:   "1.2.3.4",
 			statusCode: http.StatusNoContent,
 			headers: map[string]string{
 				torblock.XForwardedForHeader: "4.5.6.7",
 			},
 		},
+		// check blocking with empty X-Forwarded-For header (use remote ip as fallback)
 		{
-			srcIp:      "1.2.3.4",
+			remoteIp:   "1.2.3.4",
 			statusCode: http.StatusForbidden,
 			headers: map[string]string{
 				torblock.XForwardedForHeader: "",
 			},
+		},
+		// check ip subnet blocking
+		{
+			remoteIp:   "171.25.193.35",
+			statusCode: http.StatusNoContent,
+		},
+		{
+			remoteIp:   "171.25.193.36",
+			statusCode: http.StatusForbidden,
+		},
+		{
+			remoteIp:   "171.25.193.37",
+			statusCode: http.StatusForbidden,
+		},
+		{
+			remoteIp:   "171.25.193.38",
+			statusCode: http.StatusNoContent,
 		},
 	}
 
@@ -119,7 +144,7 @@ func TestRequests(t *testing.T) {
 	for _, tc := range testCases {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://localhost", nil)
 		assert.NoError(err)
-		req.RemoteAddr = fmt.Sprintf("%s:%d", tc.srcIp, 1234)
+		req.RemoteAddr = fmt.Sprintf("%s:%d", tc.remoteIp, 1234)
 		for k, v := range tc.headers {
 			req.Header.Set(k, v)
 		}
